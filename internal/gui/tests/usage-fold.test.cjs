@@ -30,7 +30,11 @@ const quotas = () => [
 ];
 
 function serve(lang, panel, list = quotas) {
-  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd" };
+  // the folds' own cards first: the Next 5 hours and Next 7 days cards, first
+  // where the order doesn't name them, put after them, as a reader would
+  // drag them (the window is 300px tall); ARNO's page keeps them first
+  const order = list === quotas ? { usageOrder: ["workbuddy", "zcode", "codex", "next5h", "next7d"] } : {};
+  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", ...order };
   return async (route) => {
     const url = new URL(route.request().url());
     const json = (data) => route.fulfill({ json: data });
@@ -124,11 +128,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const two = acct("codex", "two@example.com");
       // wheeled to, as a reader would (the page holds still for a script's
       // scroll): packed into columns (#860), Codex's card is under ZCode's,
-      // past this short window's foot
+      // past this short window's foot. In sight is above the view's own
+      // foot, not the window's: a button half under it, focused by the
+      // click, is scrolled into sight by the page (backToReader)
+      const foot = await view.evaluate((v) => v.getBoundingClientRect().bottom);
       const wheelTo = async (l) => {
         for (let i = 0; i < 20; i++) {
           const y = (await l.boundingBox()).y;
-          if (y > 60 && y + 40 < 300) break;
+          if (y > 60 && y + 40 < foot) break;
           await page.mouse.wheel(0, y > 60 ? 60 : -60);
           await page.waitForTimeout(150);
         }
@@ -189,9 +196,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
   }
 
   // ARNO's Usage page: 17 subscriptions, 29 accounts. With Trends off, at
-  // 1280×800, every account is on the page and most of their bars are on
-  // the first screen without opening anything, as many as before the curves.
-  test(`${engine}: 17 subscriptions and 29 accounts, most on one screen`, async (t) => {
+  // 1280×800, every account is on the page, and every account's windows are
+  // on the first screen without opening anything: the Next 5 hours and Next
+  // 7 days cards, first, gather them all (the week's lists the ones further
+  // off), where the accounts' own cards once showed 15 of them.
+  test(`${engine}: 17 subscriptions and 29 accounts, all on one screen`, async (t) => {
     const later = (h) => new Date(Date.now() + h * 3600e3).toISOString();
     const two = (a, b) => [{ name: "5 hours", used: a, resetsAt: later(2) }, { name: "Weekly", used: b, resetsAt: later(72) }];
     const one = (name, used, h = 288) => [{ name, used, resetsAt: later(h) }];
@@ -225,13 +234,33 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const box = document.querySelector("#subscriptionUsage");
       // an account's bars: what follows its row; a card without accounts: its bars
       const bars = [...box.querySelectorAll(".subscription-account")].map((a) => a.nextElementSibling);
-      for (const c of box.children) if (!c.querySelector(".subscription-account")) bars.push(c.querySelector(".quota-windows"));
+      // (the Next 5 hours and Next 7 days cards have no account and no bars of their own)
+      for (const c of box.children) if (!c.querySelector(".subscription-account") && !["next5h", "next7d"].includes(c.dataset.key)) bars.push(c.querySelector(".quota-windows"));
       return { all: bars.length, shown: bars.filter((b) => b.offsetParent).length, onScreen: bars.filter((b) => b.offsetParent && b.getBoundingClientRect().bottom <= innerHeight).length };
     });
+    // the cards are drawn again once their width is known
+    await page.waitForFunction(() => document.querySelectorAll('#subscriptionUsage > [data-key="next7d"] .n5-far .n5-d').length > 0);
     const s = await seen();
     assert.equal(s.all, 29);
     assert.equal(s.shown, 29, "every account's bars are on the page, none behind a button");
-    // before the curves (9ccabdfb^) 15 were; v0.1.752 showed 12, and 12 more only behind buttons
-    assert.ok(s.onScreen >= 15, `as many accounts on the first screen as before the curves: ${s.onScreen} of 29`);
+    const cards = await page.evaluate(() => {
+      const box = document.querySelector("#subscriptionUsage");
+      const inSight = (d) => { const r = d.getBoundingClientRect(); return d.getClientRects().length && r.top >= 0 && r.bottom <= innerHeight; };
+      // each window a bar or a donut stands for: its key is the horizon's, then
+      // the provider, the account and the window
+      const accounts = new Set(), windows = new Set();
+      for (const d of box.querySelectorAll(".n5-item, .n5-d")) {
+        if (!inSight(d)) continue;
+        const [, , provider, account, ...w] = d.n5tip.key.split("\n");
+        accounts.add(provider + " " + account);
+        windows.add(provider + " " + account + " " + w.join(" "));
+      }
+      return { first: [...box.children].slice(0, 2).map((c) => c.dataset.key), accounts: accounts.size, windows: windows.size, counted: box.querySelectorAll(".n5-dmore").length };
+    });
+    assert.deepEqual(cards.first, ["next5h", "next7d"], "the two cards first");
+    // before the curves (9ccabdfb^) the accounts' cards showed 15 on the first screen; v0.1.752 12
+    assert.equal(cards.accounts, 29, `every account on the first screen: ${JSON.stringify(cards)}`);
+    assert.equal(cards.windows, 49, "every window with a reset time, none counted away");
+    assert.equal(cards.counted, 0);
   });
 }

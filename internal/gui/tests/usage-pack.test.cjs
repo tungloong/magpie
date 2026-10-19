@@ -12,6 +12,12 @@
 // The last card in each column reaches down to where the tallest ends
 // (ikunbots on X, "卡片可以对齐吗"): Claude Code, Codex and Antigravity side
 // by side end on one line, and DeepSeek under Antigravity ends with Codex.
+// The Next 5 hours and Next 7 days cards stand first on every one of these
+// pages, so the reporters' pages no longer look as their screenshots did;
+// what their reports asked for is checked on the whole page, the two cards
+// with the rest: each card in the column ending highest when its turn came
+// (packed), short ones stacked as tall as themselves and the last in each
+// column down to where the tallest ends (sound), in the user's order.
 // Chromium and WebKit, English, Chinese, Japanese and German; no backend,
 // the API is faked here.
 const assert = require("node:assert/strict");
@@ -96,10 +102,29 @@ function serve(lang, data) {
 // each card's box, the bottom of what is in it, and its key, in page order
 const boxes = (page) => page.$$eval("#subscriptionUsage > .subscription-card", (cs) => cs.map((c) => {
   const r = c.getBoundingClientRect();
-  const inner = Math.max(...[...c.children].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().bottom));
+  // (with each one's margin under it: the room under a chart is the chart's)
+  const inner = Math.max(...[...c.children].filter((e) => e.offsetParent).map((e) => e.getBoundingClientRect().bottom + parseFloat(getComputedStyle(e).marginBottom)));
   return { key: c.dataset.key, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), bottom: r.bottom, inner };
 }));
 const settle = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r)))));
+
+// the two cards first, where the order doesn't name them
+const HZ = ["next5h", "next7d"];
+
+// each card in the column that ended highest when its turn came, the
+// leftmost of those within a pixel, the cards' own 7px under the one
+// above it (packUsage)
+function packed(cards, what) {
+  const xs = [...new Set(cards.map((c) => c.x))].sort((a, b) => a - b);
+  const top = Math.min(...cards.map((c) => c.y));
+  const ends = new Map(xs.map((x) => [x, null]));
+  for (const c of cards) {
+    const at = (x) => (ends.get(x) === null ? top : ends.get(x) + 7);
+    const low = Math.min(...xs.map(at)), x = xs.find((x) => at(x) <= low + 1);
+    assert.ok(c.x === x && Math.abs(c.y - at(x)) <= 1, `${what}: ${c.key} in the column ending highest: ${JSON.stringify(cards)}`);
+    ends.set(c.x, c.y + c.h);
+  }
+}
 
 function sound(cards, what) {
   const end = Math.max(...cards.map((c) => c.bottom));
@@ -149,10 +174,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       for (const width of [1400, 1018]) {
         const page = await open(`ikun-${width}`, { quotas: ikun(now) }, width);
         const cards = await boxes(page);
-        assert.deepEqual(cards.map((c) => c.key), ["claude", "codex", "antigravity"], "the order on the page is the user's");
-        assert.ok(cards.every((c) => c.y === cards[0].y), `${width}px: one row: ${JSON.stringify(cards)}`);
-        assert.ok(cards.every((c) => Math.abs(c.bottom - cards[0].bottom) < 0.5), `${width}px: the cards' bottoms line up: ${JSON.stringify(cards)}`);
-        assert.ok(Math.max(...cards.map((c) => c.inner)) - Math.min(...cards.map((c) => c.inner)) > 20, `${width}px: the fixture's cards hold different heights: ${JSON.stringify(cards)}`);
+        assert.deepEqual(cards.map((c) => c.key), [...HZ, "claude", "codex", "antigravity"], "the order on the page is the user's");
+        const own = cards.filter((c) => !HZ.includes(c.key));
+        assert.ok(Math.max(...own.map((c) => c.inner)) - Math.min(...own.map((c) => c.inner)) > 20, `${width}px: the fixture's cards hold different heights: ${JSON.stringify(cards)}`);
+        packed(cards, `ikun ${width}px`);
         sound(cards, `ikun ${width}px`);
         // a narrow window: one column, each card as tall as itself
         await page.setViewportSize({ width: 480, height: 900 });
@@ -164,32 +189,32 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.setViewportSize({ width, height: 900 });
         await settle(page);
         const back = await boxes(page);
-        assert.ok(back.every((c) => c.y === back[0].y && Math.abs(c.bottom - back[0].bottom) < 0.5), `${width}px again: one row, bottoms lined up: ${JSON.stringify(back)}`);
+        assert.deepEqual(back.map((c) => [c.key, c.x, c.y]), cards.map((c) => [c.key, c.x, c.y]), `${width}px again: as it was: ${JSON.stringify(back)}`);
+        sound(back, `ikun ${width}px again`);
       }
 
       // the reporter's three, at their window and wider
       for (const width of [897, 1018, 1400]) {
         const page = await open(`reporter-${width}`, fixtures(now), width);
         const cards = await boxes(page);
-        assert.deepEqual(cards.map((c) => c.key), ["codex", "antigravity", "deepseek"], "the order on the page is the user's");
+        assert.deepEqual(cards.map((c) => c.key), [...HZ, "codex", "antigravity", "deepseek"], "the order on the page is the user's");
+        // stacked, not stretched: each in the column ending highest, as tall
+        // as itself but for the last in its column
+        packed(cards, `${width}px`);
         sound(cards, `${width}px`);
-        const [codex, ag, ds] = cards;
-        assert.equal(ag.x, ds.x, `${width}px: DeepSeek under Antigravity: ${JSON.stringify(cards)}`);
-        assert.ok(ag.x > codex.x && ag.y === codex.y, `${width}px: Antigravity beside Codex, at its top`);
-        assert.ok(Math.abs(ds.y - (ag.y + ag.h) - 7) <= 1, `${width}px: the cards' own gap between them: ${JSON.stringify([ag, ds])}`);
-        // still stacked, not stretched: Antigravity as tall as itself, and
-        // DeepSeek, last in the column, ends where Codex does
-        assert.ok(ag.bottom - ag.inner < 16, `${width}px: Antigravity as tall as itself: ${JSON.stringify(ag)}`);
-        assert.ok(Math.abs(ds.bottom - codex.bottom) < 0.5, `${width}px: DeepSeek ends where Codex does: ${JSON.stringify(cards)}`);
       }
 
       // cards of a height: one row, in their order; a narrow window one column
       // as wide as 1300 beside the sidebar
       const row = await open("even", { quotas: even(now) }, 1512);
       let cards = await boxes(row);
-      assert.deepEqual(cards.map((c) => c.key), ["kimi", "zai", "minimax", "moonshot"]);
-      assert.ok(cards.every((c) => c.y === cards[0].y), `one row: ${JSON.stringify(cards)}`);
-      assert.deepEqual(cards.map((c) => c.x), [...cards.map((c) => c.x)].sort((a, b) => a - b), "left to right in their order");
+      // (5-hour windows alone: no week's card)
+      assert.deepEqual(cards.map((c) => c.key), ["next5h", "kimi", "zai", "minimax", "moonshot"]);
+      // the first row left to right in their order
+      const first = cards.filter((c) => c.y === cards[0].y);
+      assert.ok(first.length >= 3, `a row of three or more: ${JSON.stringify(cards)}`);
+      assert.deepEqual(first.map((c) => c.x), [...first.map((c) => c.x)].sort((a, b) => a - b), "left to right in their order");
+      packed(cards, "even");
       sound(cards, "even");
       await row.setViewportSize({ width: 480, height: 900 });
       await settle(row);

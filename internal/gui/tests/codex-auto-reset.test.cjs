@@ -20,6 +20,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const later = new Date(Date.now() + 3 * 864e5).toISOString();
@@ -42,7 +43,7 @@ function serve(lang, posts) {
   // as the settings keep it: the accounts on, and the ones kept to one time
   let auto = [], only = {};
   const when = (who) => auto.includes(who) ? { week: only[who] !== "expiring", expiring: only[who] !== "week" } : { week: false, expiring: false };
-  const settings = () => ({ theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", trayUsages: ["codex", "zhipu", "codex-plugin"], trayUsageEvery: 3, codexAutoReset: auto, codexAutoResetOnly: only });
+  const settings = () => ({ theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", trayUsages: ["codex", "zhipu", "codex-plugin"], trayUsageEvery: 3, codexAutoReset: auto, codexAutoResetOnly: only, usageOrder: horizonsLast(quotas) });
   return async (route) => {
     const req = route.request(), url = new URL(req.url());
     const json = (data) => route.fulfill({ json: data });

@@ -15,6 +15,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 const reader = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
@@ -52,7 +53,7 @@ function serveUsage(lang) {
     const json = (data) => route.fulfill({ json: data });
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:true};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
-    if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light" } });
+    if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", usageOrder: horizonsLast([{ provider: "codex" }]) } });
     if (url.pathname === "/api/gateway/trace") {
       if (url.searchParams.get("wait")) await new Promise((r) => setTimeout(r, 20e3));
       return json({ mine: true, now: new Date(now).toISOString(), seq: 1, totals: { requests: 0, rerouted: 0, errors: 0 }, routes: [] });

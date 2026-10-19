@@ -115,7 +115,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await page.route("**/*", serve(lang, c));
           await page.goto("http://magpie.test/?mode=panel");
           await page.waitForFunction((n) => document.querySelectorAll("#panelQuota .pq-card[data-card]").length >= n, c.panel.flat().length);
-          const groups = await page.evaluate(() => [...document.querySelectorAll("#panelQuota > .pq-group")]
+          // the vendors' sections; the Next 5 hours and Next 7 days cards are sections of their own
+          const groups = await page.evaluate(() => [...document.querySelectorAll("#panelQuota > .pq-group:not([data-key=next5h]):not([data-key=next7d])")]
             .map((g) => [...new Set([...g.querySelectorAll(".pq-card[data-card]")].map((x) => x.dataset.card.split("|")[0]))]));
           assert.deepEqual(groups, c.panel, "one Command Code card, not a second under Balances");
           // the plan's card: its rings, and the balance under them
@@ -150,8 +151,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         win.on("pageerror", (e) => errors.push(e.message));
         await win.route("**/*", serve(lang, c));
         await win.goto("http://magpie.test/?view=usage&tab=usage");
-        await win.waitForFunction((n) => document.querySelectorAll("#subscriptionUsage > [data-key]").length >= n, c.usage.length);
-        assert.deepEqual(await win.evaluate(() => [...document.querySelectorAll("#subscriptionUsage > [data-key]")].map((x) => x.dataset.key)), c.usage, "the balance on its plan's card, not a card of its own");
+        // the accounts' and keys' cards, the Next 5 hours and Next 7 days cards beside them left out
+        await win.waitForFunction((n) => document.querySelectorAll("#subscriptionUsage > [data-key]:not([data-key=next5h]):not([data-key=next7d])").length >= n, c.usage.length);
+        assert.deepEqual(await win.evaluate(() => [...document.querySelectorAll("#subscriptionUsage > [data-key]:not([data-key=next5h]):not([data-key=next7d])")].map((x) => x.dataset.key)), c.usage, "the balance on its plan's card, not a card of its own");
         for (const [provider, want] of Object.entries(c.balances)) {
           const got = await win.evaluate((p) => [...document.querySelectorAll(`#subscriptionUsage > [data-key="${p}"] .quota-balance b`)].map((b) => b.textContent), provider);
           assert.deepEqual(got, want, "each plan's own key's balance, under its windows");

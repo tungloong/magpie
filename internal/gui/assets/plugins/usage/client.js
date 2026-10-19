@@ -10,7 +10,9 @@
 // has its figures), reload (Refresh in the sidebar), costs (the currency
 // or a rate changed) and tab (the tab shown, for the allowance card a
 // link opens on). The allowance cards themselves, which the tray panel
-// shows too, stay app.js's.
+// shows too, stay app.js's; the Next 5 hours and Next 7 days cards are
+// page.js's, and the Usage page, the panel and its arranging place them
+// with a call each (next5PutCards, next5PanelGroups, next5PutRows).
 magpie.plugin("usage", (ctx) => {
   ctx.slots.add("page", {
     key: "usage",

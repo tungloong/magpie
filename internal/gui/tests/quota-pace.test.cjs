@@ -13,6 +13,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 const { openPart } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
@@ -36,6 +37,7 @@ function settingsPayload(over) {
     proxyNow: "none", proxySource: "none", login: false,
     visionModels: [], imageGenModels: [], workbuddyCheckins: [], lanURLs: [],
     fx: { rate: 7.2, at: new Date().toISOString(), stale: false },
+    usageOrder: horizonsLast(quotas()),
     ...over,
   };
 }
@@ -47,7 +49,7 @@ function serve(lang, posts, over) {
     const json = (data) => r.fulfill({ json: data });
     if (url.pathname === "/boot.js") return r.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:false};` });
     if (url.pathname === "/wails/runtime.js") return r.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
-    if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", quotaLeft: cur.quotaLeft }, fx: cur.fx });
+    if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", quotaLeft: cur.quotaLeft, usageOrder: horizonsLast(quotas()) }, fx: cur.fx });
     if (url.pathname === "/api/settings") {
       if (req.method() === "POST") {
         const body = req.postDataJSON();

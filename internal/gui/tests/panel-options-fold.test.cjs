@@ -12,6 +12,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const later = new Date(Date.now() + 3 * 864e5).toISOString();
@@ -24,7 +25,7 @@ const quotas = [
 function serve(lang, posts) {
   let off = [];
   const settings = () => ({ theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", trayUsages: ["codex"], trayUsageEvery: 3,
-    codexAutoReset: ["me@example.com"], codexAutoResetOnly: { "me@example.com": "week" }, codexNoCredits: off });
+    codexAutoReset: ["me@example.com"], codexAutoResetOnly: { "me@example.com": "week" }, codexNoCredits: off, usageOrder: horizonsLast(quotas) });
   return async (route) => {
     const req = route.request(), url = new URL(req.url());
     const json = (data) => route.fulfill({ json: data });

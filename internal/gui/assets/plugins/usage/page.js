@@ -3222,3 +3222,824 @@ if (mode === "window" && params.get("view") === "usage") {
   for (const k of ["tab", "provider", "agent", "computer", "card", "purpose", "via", "period"]) u.searchParams.delete(k);
   history.replaceState(null, "", u);
 }
+
+// The Next 5 hours and Next 7 days cards: the windows that start again
+// within the card's horizon, each as a thin bar at its time, now at the
+// bottom and the horizon at the top, its logo and figure above it as the
+// other meters put a name and a figure over theirs, filled with what is used
+// or left as they are (#122). The five hours take every window; the seven
+// days the windows longer than five hours (a 5-hour window has the first
+// card), so a weekly window is on the week's card all week. The clock's full
+// hours, or the days' midnights, are dashed from the left to the middle and
+// named over their lines at the left; the hours, or days, from now are ruled
+// from the right to the middle and named over theirs at the right. The
+// windows starting again together (within the horizon's tol) are a row, at
+// their time: one is a bar two thirds of the chart wide at a spot of its
+// own, two or three bars side by side, and more than three a row of donuts,
+// a ring around each logo open at the top for its figure, wrapping onto as
+// many lines as they need (ARNO, 17 subscriptions and 29 accounts: 以前每个
+// 账号所占的空间很小，基本能一页看到所有账号的情况). The card grows as tall as
+// its rows need to stand each at its own time, up to its ceiling; past it a
+// row of bars that can't stand clear joins the one under it, and a row of
+// donuts shows the lines it has room for, the rest counted (+N). The week's
+// card lists the windows further off than seven days (a month's) as donuts
+// over its chart, so every window with a reset time is on a card. A bar or
+// donut is drawn in its logo's own colours (next5Hues), never in one for
+// how much is left. A window nobody has started yet (nothing used, its
+// reset a whole window after it was read) waits in a row above the chart
+// instead. Where two bars share a logo a corner mark tells them apart: 1, 2,
+// 3 for the provider's accounts in the cards' order, a, b, c for one
+// account's windows. A card is drawn while any window it takes has a reset
+// time, and redrawn by the clock every half minute (next5Tick), since
+// nothing else moves its bars down as the hours pass.
+const NEXT5_SLACK = 10 * 60e3;
+// a bar's thickness, the label row over it and the room between them; the
+// least room between a row and the one over it (two bars 28px apart); the
+// room the names keep on the left and on the right, which nothing covers;
+// between two bars side by side; a donut, the room beside it and a line of
+// them
+const NEXT5_BAR = 7, NEXT5_LABEL = 14, NEXT5_SEP = 3, NEXT5_PAD = 4;
+const NEXT5_LAB = 34, NEXT5_RLAB = 22, NEXT5_SIDE = 8;
+const NEXT5_DONUT = 30, NEXT5_DGAP = 5, NEXT5_DLINE = 36;
+// the room now's name takes from the chart when it goes under the foot
+const NEXT5_UNDER = 14;
+const NEXT5_CLOCK = "M8 2.2a5.8 5.8 0 1 0 0 11.6A5.8 5.8 0 0 0 8 2.2Z M8 4.8V8l2.2 1.5";
+const NEXT7_CALENDAR = "M3.2 4.2h9.6v9H3.2Z M3.2 7h9.6 M5.6 2.6v2.6 M10.4 2.6v2.6";
+// the two horizons. h is the chart's height on the Usage page (the 5 hours'
+// an hour twice a bar's row, so two bars an hour apart stand clear of each
+// other; the week's a day 40px) and panelH in the tray panel, whose room is
+// less; max and panelMax how tall a crowded one grows. tol is how far apart
+// two windows start again and still share a row: on the week's chart an hour
+// is under 2px, on the five hours' five minutes 4px. far: the windows
+// further off are listed over the chart. marks are the lines on the left half: the full hours, or the
+// midnights; units name those on the right (1H…5H, 1D…7D); at names a
+// time on the guide and now's on the chart's foot.
+const NEXT5_HORIZONS = [
+  {
+    key: "next5h", span: 5 * 3600e3, h: 240, panelH: 200, max: 420, panelMax: 340, tol: 5 * 60e3, glyph: NEXT5_CLOCK,
+    title: "Next 5 hours", empty: "Nothing starts again in the next 5 hours", units: [1, 2, 3, 4, 5].map((n) => n + "H"),
+    takes: () => true,
+    // the full hours on the local clock: in a half- or quarter-hour zone
+    // (India, Nepal) an hour on UTC's is :30 or :45 here
+    marks: (now, span) => {
+      const out = [], d = new Date(now);
+      if (d.getMinutes() || d.getSeconds() || d.getMilliseconds()) d.setMinutes(60, 0, 0);
+      for (; d.getTime() < now + span; d.setHours(d.getHours() + 1)) out.push([d.getTime(), next5Clock(d.getTime())]);
+      return out;
+    },
+    at: (ms) => next5Clock(ms),
+  },
+  {
+    key: "next7d", span: 7 * 864e5, h: 280, panelH: 240, max: 460, panelMax: 380, tol: 3600e3, far: true, glyph: NEXT7_CALENDAR,
+    title: "Next 7 days", empty: "Nothing starts again in the next 7 days", units: [1, 2, 3, 4, 5, 6, 7].map((n) => n + "D"),
+    takes: (w) => { const s = next5Span(w); return !(s > 0 && s <= 5 * 3600e3); },
+    marks: (now, span) => {
+      const out = [], d = new Date(now);
+      for (d.setHours(24, 0, 0, 0); d.getTime() < now + span; d.setDate(d.getDate() + 1)) out.push([d.getTime(), next5Day(d.getTime())]);
+      return out;
+    },
+    at: (ms) => next5Day(ms) + " " + next5Clock(ms),
+  },
+];
+// each horizon's card on the Usage page and in the tray panel, by its key
+const next5Els = new Map(), next5PanelEls = new Map();
+
+// a window's span off its name: "5 hours", "5h" and "5-hour" are 5h, "7
+// days · Opus" and "Weekly" 7d, "Daily" 1d; 0 when its name says no span
+// (a month's isn't one length, "Credits" none)
+function next5Span(w) {
+  const name = w.window || w.name || "";
+  const m = /(\d+)\s*-?\s*(minute|min|hour|hr|h|day|d|week|wk|w)s?\b/i.exec(name);
+  const unit = { minute: 60e3, min: 60e3, hour: 3600e3, hr: 3600e3, h: 3600e3, day: 864e5, d: 864e5, week: 6048e5, wk: 6048e5, w: 6048e5 };
+  if (m) return m[1] * unit[m[2].toLowerCase()];
+  if (/\bweek(ly)?\b/i.test(name)) return 6048e5;
+  if (/\b(daily|day)\b/i.test(name)) return 864e5;
+  return 0;
+}
+
+// next5Entries: the windows a horizon takes that start again within it, as
+// of now (and, where it lists them, those further off: far), and whether
+// any window it takes has a reset time at all (its card is drawn then)
+function next5Entries(now, hz) {
+  const out = [];
+  let timed = false;
+  const nth = new Map();
+  for (const sub of byUsageOrder(keyCards(quotas || []))) {
+    // an account's number among its provider's, as the cards list them
+    const n = (nth.get(sub.provider) || 0) + 1;
+    nth.set(sub.provider, n);
+    if (!sub.windows?.length) continue;
+    // when the windows were read: the reading's own time, or that of the one
+    // kept in its place when the vendor turned the read away
+    const read = sub.readAt || sub.asOf ? new Date(sub.readAt || sub.asOf).getTime() : NaN;
+    for (const w of familyWindows(sub.windows)) {
+      if (w.unlimited || typeof w.used !== "number" || !hz.takes(w)) continue;
+      const at = w.resetsAt ? new Date(w.resetsAt).getTime() : w.resetSecs > 0 && isFinite(read) ? read + w.resetSecs * 1000 : NaN;
+      if (!isFinite(at)) continue;
+      timed = true;
+      // untouched: nothing used, and its reset a whole span after the read,
+      // as a vendor reports a window not yet begun (Codex warm-ups' slack)
+      const span = next5Span(w), from = isFinite(read) ? at - read : (w.resetSecs || 0) * 1000;
+      const waiting = w.used <= 0 && span > 0 && from >= span - NEXT5_SLACK;
+      const dt = at - now;
+      const far = dt > hz.span + (waiting ? NEXT5_SLACK : 0);
+      if (dt <= 0 || (far && (!hz.far || waiting))) continue;
+      out.push({ key: sub.provider + "\n" + (sub.user || n) + "\n" + w.name, sub, w, account: n, at, dt, waiting, far, logo: sub.icon || sub.provider });
+    }
+  }
+  // the corner marks, only where a logo is on more than one entry
+  const byLogo = new Map();
+  for (const e of out) byLogo.set(e.logo, [...(byLogo.get(e.logo) || []), e]);
+  for (const group of byLogo.values()) {
+    // the accounts under one logo numbered in the cards' order, whichever
+    // providers they are of (two providers can share a logo)
+    const who = (e) => e.sub.provider + "\n" + e.account;
+    const accounts = [...new Set(group.map(who))];
+    accounts.forEach((a, k) => {
+      const mine = group.filter((e) => who(e) === a);
+      mine.forEach((e, i) => { e.mark = (accounts.length > 1 ? String(k + 1) : "") + (mine.length > 1 ? "abcdefghij"[i] || "" : ""); });
+    });
+  }
+  return { entries: out, timed };
+}
+
+// a number in [0, 1) of a window's own key, the same on every draw. FNV-1a,
+// its bits mixed once more as murmur3 ends: FNV alone moves little on a
+// key's last letter, which put one provider's accounts in one spot.
+function next5Seed(s) {
+  let h = 2166136261;
+  for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+// next5Rows: the windows starting again together, within tol of the first
+// of them, a row each, the earliest first
+function next5Rows(entries, tol) {
+  const rows = [];
+  for (const e of [...entries].sort((a, b) => a.dt - b.dt)) {
+    if (rows.length && e.dt - rows.at(-1)[0].dt <= tol) rows.at(-1).push(e);
+    else rows.push([e]);
+  }
+  return rows;
+}
+// how many donuts a line of w px holds; how far a row stands over its time
+// (a bar's label and upper half, or its donuts' lines and the 3px under
+// them) and under it (a bar's lower half)
+const next5PerLine = (w) => Math.max(1, Math.floor((w + NEXT5_DGAP) / (NEXT5_DONUT + NEXT5_DGAP)));
+const next5Up = (row, w) => row.length <= 3 ? NEXT5_LABEL + NEXT5_SEP + NEXT5_BAR / 2 : Math.ceil(row.length / next5PerLine(w)) * NEXT5_DLINE + 3;
+const next5Down = (row) => row.length <= 3 ? NEXT5_BAR / 2 : 0;
+
+// next5Height: the chart as tall as its rows need to stand each at its own
+// time, the time scale kept: each clear of the one over it, a row of donuts
+// clear of the top; at least the card's own height, at most its ceiling.
+// Grown, it grows 20px at a time: what the rows need moves with the clock,
+// and a card a pixel taller or shorter at every redraw moved what is under it.
+const NEXT5_STEP = 20;
+function next5Height(rows, base, max, span, w) {
+  let want = base;
+  rows.forEach((row, i) => {
+    const t0 = row[0].dt;
+    if (i + 1 < rows.length) want = Math.max(want, ((next5Up(row, w) + NEXT5_PAD + next5Down(rows[i + 1])) * span) / (rows[i + 1][0].dt - t0));
+    if (row.length > 3) want = Math.max(want, (next5Up(row, w) + 2) / (1 - t0 / span));
+  });
+  return want <= base ? base : Math.min(base + Math.ceil((want - base) / NEXT5_STEP) * NEXT5_STEP, max);
+}
+
+// next5Place: where each row stands at H. At the ceiling, a row of bars
+// that still can't stand clear of the next takes it in, at its own (the
+// earlier) time; a row of donuts keeps its time and shows the lines it has
+// room for under the next, the rest counted. A bar alone has the chart to
+// itself: its spot across is its rank among those alone, by a number of its
+// window's own, with a little play inside that rank's share, so the spots
+// are spread evenly and still read as chance, and a window keeps its spot
+// while the others do. Returns the rows.
+function next5Place(rows, H, span, w) {
+  const out = [];
+  for (const row of rows) {
+    const last = out.at(-1);
+    if (last && last.length <= 3 && (H * (row[0].dt - last[0].dt)) / span < next5Up(last, w) + NEXT5_PAD + next5Down(row)) last.push(...row);
+    else out.push([...row]);
+  }
+  const top = NEXT5_LABEL + NEXT5_SEP + NEXT5_BAR / 2 - 6, low = H - NEXT5_BAR / 2 - 2;
+  out.forEach((row, i) => {
+    row.y = H * (1 - row[0].dt / span);
+    for (const e of row) e.y = H * (1 - e.dt / span);
+    if (row.length <= 3) {
+      const c = Math.min(Math.max(top, row.y), low);
+      row.forEach((e, k) => { e.c = c; e.slot = row.length > 1 ? { i: k, k: row.length } : null; });
+      return;
+    }
+    // the room under the next row's time (and its bar's lower half), or the top
+    const next = out[i + 1], over = next ? H * (1 - next[0].dt / span) + next5Down(next) : 0;
+    const n = next5PerLine(w), room = row.y - 3 - (next ? over + NEXT5_PAD : 2);
+    const lines = Math.max(1, Math.min(Math.ceil(row.length / n), Math.floor(room / NEXT5_DLINE)));
+    row.shown = row.length <= lines * n ? row : row.slice(0, lines * n - 1);
+    row.rest = row.slice(row.shown.length);
+  });
+  const alone = out.filter((r) => r.length === 1).map((r) => r[0]);
+  [...alone].sort((a, b) => next5Seed(a.key) - next5Seed(b.key)).forEach((e, r) => {
+    e.f = (r + 0.2 + 0.6 * next5Seed(e.key + "\nx")) / alone.length;
+  });
+  return out;
+}
+
+const next5Lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const next5Lum = ([r, g, b]) => 0.2126 * next5Lin(r) + 0.7152 * next5Lin(g) + 0.0722 * next5Lin(b);
+function next5Lab([r, g, b]) {
+  const [R, G, B] = [next5Lin(r), next5Lin(g), next5Lin(b)];
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+const next5Dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+// next5Read: a logo's main colours, read from its picture: its opaque
+// pixels less the white, black and greys a logo is drawn on or outlined in,
+// gathered into four groups of colours that look alike (OKLab). Of the
+// groups covering a seventh of the logo or more, the two both large and
+// most unlike each other, when they are unlike at all: a gradient's two
+// ends, a logo of two colours its two, one colour for a logo of one; the
+// one further left in the logo first, so a bar runs the way its logo does
+// (and the same in every engine, which raster a logo a little apart). Each
+// stands for its group by a pixel of the logo's own, not a blend no part of
+// it has. [] for one with no colour, or a picture that can't be read.
+function next5Read(img) {
+  const n = 64, cv = document.createElement("canvas");
+  cv.width = cv.height = n;
+  let data;
+  try {
+    const cx = cv.getContext("2d", { willReadFrequently: true });
+    cx.drawImage(img, 0, 0, n, n);
+    data = cx.getImageData(0, 0, n, n).data;
+  } catch {
+    return [];
+  }
+  const px = [], xs = [];
+  for (let i = 0; i < data.length; i += 4) {
+    const rgb = [data[i], data[i + 1], data[i + 2]];
+    if (data[i + 3] >= 200 && Math.max(...rgb) - Math.min(...rgb) >= 40) { px.push(rgb); xs.push((i / 4) % n); }
+  }
+  if (!px.length) return [];
+  const labs = px.map(next5Lab);
+  const mean = (ls) => [0, 1, 2].map((d) => ls.reduce((s, l) => s + l[d], 0) / ls.length);
+  const all = mean(labs);
+  // four centres, each started as far from those before it as the logo goes
+  const near = (l, cs) => Math.min(...cs.map((c) => next5Dist(l, c)));
+  const cs = [labs.reduce((a, l) => (next5Dist(l, all) > next5Dist(a, all) ? l : a))];
+  while (cs.length < 4) cs.push(labs.reduce((a, l) => (near(l, cs) > near(a, cs) ? l : a)));
+  let groups = [];
+  for (let round = 0; round < 16; round++) {
+    groups = cs.map(() => []);
+    labs.forEach((l, i) => groups[cs.reduce((j, c, k) => (next5Dist(l, c) < next5Dist(l, cs[j]) ? k : j), 0)].push(i));
+    groups.forEach((g, j) => { if (g.length) cs[j] = mean(g.map((i) => labs[i])); });
+  }
+  const found = groups.map((g, j) => ({ share: g.length / px.length, c: cs[j], g })).filter((x) => x.g.length).sort((a, b) => b.share - a.share);
+  const own = (x) => px[x.g.reduce((a, i) => (next5Dist(labs[i], x.c) < next5Dist(labs[a], x.c) ? i : a))];
+  // a gradient cut in four leaves its largest group in the middle, a step
+  // from those beside it: the pair is weighed by the smaller one's share
+  // times how far apart they are, which finds its ends
+  const big = found.filter((x) => x.share >= 0.15);
+  let pair = null;
+  for (let i = 0; i < big.length; i++)
+    for (let j = i + 1; j < big.length; j++) {
+      const v = big[j].share * next5Dist(big[i].c, big[j].c);
+      if (!pair || v > pair.v) pair = { v, a: big[i], b: big[j] };
+    }
+  if (pair && next5Dist(pair.a.c, pair.b.c) >= 0.06) {
+    const x = (g) => g.g.reduce((s, i) => s + xs[i], 0) / g.g.length;
+    return x(pair.a) <= x(pair.b) ? [own(pair.a), own(pair.b)] : [own(pair.b), own(pair.a)];
+  }
+  return [px[labs.reduce((a, l, i) => (next5Dist(l, all) < next5Dist(labs[a], all) ? i : a), 0)]];
+}
+
+// next5Hues: a logo's main colours (next5Read), read once and kept; [] for
+// a logo of no colour of its own (a mask, drawn in the text's), and null
+// while its picture loads, the card drawn again once it has
+const next5HueOf = new Map();
+function next5Hues(name) {
+  if (next5HueOf.has(name)) return next5HueOf.get(name);
+  const src = name?.startsWith("file:") ? "/api/icons/" + encodeURIComponent(name.slice(5))
+    : name && (name.endsWith("-color") || pngIcons.has(name)) ? `icons/${name}.${pngIcons.has(name) ? "png" : "svg"}` : "";
+  if (!src) {
+    next5HueOf.set(name, []);
+    return [];
+  }
+  next5HueOf.set(name, null);
+  const img = new Image();
+  img.onload = () => { next5HueOf.set(name, next5Read(img)); next5Again(); };
+  img.onerror = () => next5HueOf.set(name, []);
+  img.src = src;
+  return null;
+}
+
+// the card's ground as [r, g, b], from the theme in use (a user's own and
+// Omarchy's too), which a canvas reads back in one form whatever it is
+function next5Ground() {
+  const cx = (next5Ground.cx ||= document.createElement("canvas").getContext("2d"));
+  cx.fillStyle = "#fff";
+  cx.fillStyle = getComputedStyle(document.body).getPropertyValue("--card").trim() || "#fff";
+  const v = cx.fillStyle;
+  return v.startsWith("#") ? [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16)) : (v.match(/[\d.]+/g) || [255, 255, 255]).slice(0, 3).map(Number);
+}
+
+// next5Ink: a logo's colour moved toward black on a light card, white on a
+// dark one, until it stands 3:1 against the card, the least a part of the
+// page that isn't text needs to be seen on it (WCAG 1.4.11): a logo's own
+// white, black or the card's colour never draws a bar the card hides
+function next5Ink(rgb, ground) {
+  const contrast = (c) => { const [x, y] = [next5Lum(c), next5Lum(ground)].sort((p, q) => p - q); return (y + 0.05) / (x + 0.05); };
+  const to = next5Lum(ground) > 0.18 ? 0 : 255;
+  let c = rgb;
+  for (let k = 1; k <= 25 && contrast(c) < 3; k++) c = rgb.map((v) => v + (to - v) * k * 0.04);
+  return `rgb(${c.map(Math.round).join(" ")})`;
+}
+
+// a logo and its corner mark, for a bar and the waiting row
+function next5Logo(e) {
+  const box = el("span", "n5-logo");
+  box.append(icon(e.sub.icon));
+  if (e.mark) box.append(el("span", "n5-mark", e.mark));
+  return box;
+}
+const next5Who = (e) => quotaName(e.sub) + (e.mark ? " " + e.mark : "") + " · " + t(e.w.name);
+// how long until a time, to the minute: "47m", "2h 35m", and past a day
+// to the hour: "2d 6h"; under a minute is "1m", never "0m"
+const next5Left = (ms) => {
+  const m = Math.max(ms > 0 ? 1 : 0, Math.floor(ms / 60e3));
+  if (m >= 1440) return t("{d}d {h}h", { d: Math.floor(m / 1440), h: Math.floor((m % 1440) / 60) });
+  return Math.floor(m / 60) ? t("{h}h {m}m", { h: Math.floor(m / 60), m: m % 60 }) : t("{n}m", { n: m });
+};
+const next5Clock = (ms) => new Date(ms).toLocaleTimeString(intlLang(), { hour: "2-digit", minute: "2-digit", hour12: false });
+// a day by its weekday, as the language shortens it ("Sat", "周六")
+const next5Day = (ms) => new Date(ms).toLocaleDateString(intlLang(), { weekday: "short" });
+// how wide a chart name is drawn (600 10px in the page's font), read by a
+// canvas so a card not yet in the page can tell
+function next5Width(text) {
+  const cx = (next5Width.cx ||= document.createElement("canvas").getContext("2d"));
+  cx.font = "600 10px " + getComputedStyle(document.body).fontFamily;
+  return cx.measureText(text).width;
+}
+
+// next5Bar: a window's logo and figure over its bar, and the line across the
+// chart at its exact time that hovering it shows. The bar is one tube in
+// the logo's colours: its outline a tint of them, the card inside where it
+// is empty, the colours themselves where it is filled; they run the whole
+// tube, so a short fill shows where they start.
+function next5Bar(e, ground, hz) {
+  const fill = quotaFill(e.w);
+  const item = el("div", "n5-item");
+  // the room between the names on either side, which a bar never covers
+  const room = `(100% - ${NEXT5_LAB + NEXT5_RLAB}px)`;
+  if (e.slot) {
+    // one of a row's two or three
+    const { i, k } = e.slot, fixed = (k - 1) * NEXT5_SIDE;
+    const w = `(${room} - ${fixed}px) / ${k}`;
+    item.style.left = `calc(${NEXT5_LAB}px + (${w} + ${NEXT5_SIDE}px) * ${i})`;
+    item.style.width = `calc(${w})`;
+  } else {
+    item.style.left = `calc(${NEXT5_LAB}px + max(0px, ${room} - 200% / 3) * ${e.f.toFixed(3)})`;
+    item.style.width = `min(calc(200% / 3), calc(${room}))`;
+  }
+  item.style.top = (e.c - NEXT5_BAR / 2 - NEXT5_SEP - NEXT5_LABEL).toFixed(1) + "px";
+  item.setAttribute("aria-label", next5Who(e) + " · " + quotaText(e.w) + " · " + resetText(new Date(e.at)));
+  item.n5tip = { key: hz.key + "\n\n" + e.key, show: () => next5TipShow(item, [e], item.n5tip.key) };
+  const who = el("span", "who");
+  who.append(next5Logo(e));
+  const lab = el("div", "n5-lab");
+  lab.append(who, el("span", "n5-pct", fill + "%"));
+  const bar = el("div", "n5-bar"), lit = el("i");
+  lit.style.clipPath = `inset(0 ${100 - fill}% 0 0 round ${NEXT5_BAR / 2}px)`;
+  bar.append(lit);
+  item.append(lab, bar);
+  const guide = el("div", "n5-guide");
+  guide.style.top = e.y.toFixed(1) + "px";
+  guide.append(el("span", "", hz.at(e.at)));
+  const hues = next5Hues(e.sub.icon);
+  if (hues?.length) {
+    const [a, b = a] = hues.map((h) => next5Ink(h, ground));
+    for (const d of [item, guide]) { d.style.setProperty("--c1", a); d.style.setProperty("--c2", b); }
+  }
+  return [item, guide];
+}
+
+// next5Donut: a window as a ring around its logo, open at the top where its
+// figure is, filled with what is used or left as a bar is, in the logo's
+// colours: for a row of more than three, and the windows further off
+let next5Gid = 0;
+function next5Donut(e, ground, hz) {
+  const fill = quotaFill(e.w);
+  const d = el("span", "n5-d");
+  // the ring runs clockwise from the right of the opening, 84° of it open
+  const r = 13.25, a0 = 42, a1 = a0 + (fill / 100) * (360 - 2 * a0);
+  const pt = (a) => [15 + r * Math.sin((a * Math.PI) / 180), 15 - r * Math.cos((a * Math.PI) / 180)].map((v) => v.toFixed(2)).join(" ");
+  const arc = (a, b) => `M${pt(a)}A${r} ${r} 0 ${b - a > 180 ? 1 : 0} 1 ${pt(b)}`;
+  const id = "n5g" + ++next5Gid;
+  const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  ring.setAttribute("viewBox", "0 0 30 30");
+  ring.setAttribute("aria-hidden", "true");
+  ring.innerHTML = `<defs><linearGradient id="${id}"><stop offset="0" class="c1"/><stop offset="1" class="c2"/></linearGradient></defs>`
+    + `<path class="track" d="${arc(a0, 360 - a0)}"/>` + (fill > 0 ? `<path class="lit" d="${arc(a0, Math.max(a1, a0 + 0.5))}" stroke="url(#${id})"/>` : "");
+  d.append(ring, el("span", "n5-dpct", fill + "%"), next5Logo(e));
+  d.setAttribute("aria-label", next5Who(e) + " · " + quotaText(e.w) + " · " + resetText(new Date(e.at)));
+  d.n5tip = { key: hz.key + "\n\n" + e.key, show: () => next5TipShow(d, [e], d.n5tip.key) };
+  const hues = next5Hues(e.sub.icon);
+  if (hues?.length) {
+    const [a, b2 = a] = hues.map((h) => next5Ink(h, ground));
+    d.style.setProperty("--c1", a);
+    d.style.setProperty("--c2", b2);
+  }
+  return d;
+}
+// the count of the windows a line of donuts has no room for, each told on hover
+function next5DMore(rest, hz) {
+  const d = el("span", "n5-dmore", "+" + rest.length);
+  d.setAttribute("aria-label", rest.map((e) => next5Who(e) + " · " + quotaText(e.w) + " · " + resetText(new Date(e.at))).join("; "));
+  d.n5tip = { key: hz.key + "\n\n" + rest.map((e) => e.key).join("\n\n"), show: () => next5TipShow(d, rest, d.n5tip.key) };
+  return d;
+}
+
+// next5Tip: what hovering a bar tells, at once and beside it, where the
+// browser's own tooltip waited a second and ran it all into one line: the
+// account, the window and what is left of it, when it starts again and in
+// how long, its pace and what that pace comes to, this cycle's line, and
+// when it was read; for one not started, that it starts at its first use.
+// A count (+3) tells each of those it stands for.
+let next5TipEl = null, next5TipKey = "";
+function next5TipPart(e) {
+  const part = el("div", "n5-tip-part");
+  const head = el("div", "n5-tip-head"), logo = next5Logo(e);
+  // a corner mark reaches past its logo's box: room for it before the name
+  if (e.mark) logo.style.marginRight = e.mark.length * 4 + 1 + "px";
+  head.append(logo, el("b", "", quotaName(e.sub)));
+  if (e.sub.plan) head.append(el("span", "plan", e.sub.plan));
+  part.append(head);
+  const who = e.sub.alias || e.sub.user;
+  if (who) {
+    // under the name, wherever the mark put it
+    const acct = el("div", "n5-tip-acct", who);
+    if (e.mark) acct.style.marginLeft = 19 + e.mark.length * 4 + 1 + "px";
+    part.append(acct);
+  }
+  const row = (a, b, cls = "") => {
+    const d = el("div", "n5-tip-row" + cls);
+    d.append(el("span", "", a));
+    if (b) d.append(el("em", "", b));
+    return d;
+  };
+  part.append(row(t(e.w.name), quotaText(e.w)));
+  if (e.waiting) {
+    // its reset as read is only the read's time and a window on: it is
+    // counted from the first use
+    part.append(row(t("Not started"), ""), el("p", "n5-tip-note", t("The window starts counting from its first use")));
+  } else {
+    const at = new Date(e.at);
+    part.append(row(resetText(at), next5Left(e.at - Date.now())));
+  }
+  const pace = !e.waiting && quotaPace(e.w);
+  if (pace) part.append(row(t("Pace {n}", { n: paceNumber(pace.n) }), "", pace.over ? " over" : ""), el("p", "n5-tip-note", paceLine(e.w).title));
+  const spark = !e.waiting && quotaSpark(e.sub, e.w);
+  if (spark) part.append(spark);
+  const read = e.sub.readAt || e.sub.asOf;
+  if (read) part.append(el("div", "n5-tip-foot", t("As of {when}", { when: stamp(read) })));
+  return part;
+}
+function next5TipShow(anchor, entries, key) {
+  if (!next5TipEl) {
+    next5TipEl = el("div", "n5-tip");
+    next5TipEl.setAttribute("role", "tooltip");
+    document.body.append(next5TipEl);
+  }
+  const tip = next5TipEl;
+  next5TipKey = key;
+  tip.replaceChildren(...entries.map(next5TipPart));
+  tip.classList.add("on");
+  // over the bar where there is room, else under it; its left edge at the
+  // bar's, kept inside the window
+  const r = anchor.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(4, Math.min(innerWidth - 4 - w, r.left)) + "px";
+  tip.style.top = (r.top - 8 - h >= 4 ? r.top - 8 - h : Math.min(innerHeight - 4 - h, r.bottom + 8)) + "px";
+}
+function next5TipHide() {
+  next5TipEl?.classList.remove("on");
+}
+// next5Hover: the card's tooltips, told from the card itself, which its
+// redraws keep: what the pointer is over shows its own, anything else in
+// the card none. A bar drawn anew under a still pointer is never entered,
+// so one listening on each bar left its tooltip up after the pointer went;
+// in WebKit a move after such a redraw brought no mouseover either, so it
+// is every move that is read.
+function next5Hover(card) {
+  card.addEventListener("mousemove", (ev) => {
+    const at = ev.target.closest?.(".n5-item, .n5-d, .n5-dmore, .n5-wait .logos > span");
+    if (at?.n5tip) { if (!next5TipEl?.classList.contains("on") || next5TipKey !== at.n5tip.key) at.n5tip.show(); }
+    else next5TipHide();
+  });
+  card.addEventListener("mouseleave", next5TipHide);
+}
+addEventListener("scroll", next5TipHide, { capture: true, passive: true });
+
+// next5Fill draws the card's figures as of now: the next reset in its head,
+// the waiting row, the windows further off, and the chart
+function next5Fill(card, now = Date.now()) {
+  const hz = card.n5hz;
+  const { entries } = next5Entries(now, hz);
+  const running = entries.filter((e) => !e.waiting && !e.far), waiting = entries.filter((e) => e.waiting), far = entries.filter((e) => e.far);
+  const next = card.querySelector(".n5-next");
+  next.replaceChildren();
+  if (running.length) {
+    next.append(t("Next reset") + " ", el("b", "", next5Left(Math.min(...running.map((e) => e.dt)))));
+  }
+  const row = card.querySelector(".n5-wait");
+  row.hidden = !waiting.length;
+  row.replaceChildren();
+  if (waiting.length) {
+    const logos = el("span", "logos");
+    for (const e of waiting) {
+      const s = el("span");
+      s.setAttribute("aria-label", next5Who(e) + " · " + t("Not started"));
+      s.append(next5Logo(e));
+      s.n5tip = { key: hz.key + "\n\n" + e.key, show: () => next5TipShow(s, [e], s.n5tip.key) };
+      logos.append(s);
+    }
+    row.append(el("span", "lab", t("Not started")), logos);
+  }
+  const plot = card.querySelector(".n5-plot");
+  // the chart's width, between the names on either side: as last laid out
+  // (a card filled before it is in the page has none yet; next5Sized fills
+  // it again once it has)
+  const width = plot.clientWidth || card.n5w || 300, w = width - NEXT5_LAB - NEXT5_RLAB;
+  const ground = next5Ground();
+  // the windows further off, in two lines at most, the rest counted
+  const farRow = card.querySelector(".n5-far");
+  if (farRow) {
+    farRow.hidden = !far.length;
+    farRow.replaceChildren();
+    if (far.length) {
+      // two lines in what the label leaves (its words' width and the 8px after them)
+      const lab = t("Further off"), dots = el("div", "n5-dots"), n = next5PerLine(width - Math.ceil(next5Width(lab)) - 8) * 2;
+      const byTime = [...far].sort((a, b) => a.dt - b.dt), shown = byTime.length <= n ? byTime : byTime.slice(0, n - 1);
+      dots.append(...shown.map((e) => next5Donut(e, ground, hz)));
+      if (shown.length < byTime.length) dots.append(next5DMore(byTime.slice(shown.length), hz));
+      farRow.append(el("span", "lab", lab), dots);
+    }
+  }
+  let rows = next5Rows(running, hz.tol);
+  const base = +card.dataset.h || hz.h, max = +card.dataset.max || hz.max;
+  let H = next5Height(rows, base, max, hz.span, w);
+  const marks = hz.marks(now, hz.span);
+  // now's name is over the foot at the left too, but under it when anything
+  // would lie on it: a mark's name just after now (left out before: 周六 on
+  // the week's at 17:12 on a Friday), or, where now's name is wider than
+  // the names' room ("周六 09:59"), a row about to start again. Under it,
+  // its room comes out of the chart, not the card's foot (the week's 周日
+  // 17:31 sat on the card's edge): the card is as tall either way, so
+  // nothing under it moves as now's name goes from one side to the other
+  const nowName = hz.at(now);
+  let near = marks.some(([at]) => (H * (at - now)) / hz.span < 16);
+  if (!near && rows.length && next5Width(nowName) > NEXT5_LAB - 4) near = H * (1 - rows[0][0].dt / hz.span) + next5Down(rows[0]) > H - 16;
+  // (the card as tall either way, as long as its rows fit in what is left;
+  // if they don't, the chart grows as it would from 14px less)
+  if (near) H = Math.max(H - NEXT5_UNDER, next5Height(rows, base - NEXT5_UNDER, max - NEXT5_UNDER, hz.span, w));
+  plot.style.height = H + "px";
+  plot.classList.toggle("under", near);
+  plot.replaceChildren();
+  // the hours or days from now, ruled from the right edge to the middle and
+  // named over their lines at the right
+  hz.units.forEach((u, i) => {
+    const r = el("div", "n5-rule"), lab = el("div", "n5-in", u);
+    r.style.top = lab.style.top = (H - ((i + 1) * H) / hz.units.length) + "px";
+    plot.append(r, lab);
+  });
+  // the full hours or the midnights, dashed from the left to the middle and
+  // named over their lines at the left
+  for (const [at, name] of marks) {
+    const y = H * (1 - (at - now) / hz.span);
+    const line = el("div", "n5-hour"), lab = el("div", "n5-clock", name);
+    line.style.top = lab.style.top = y.toFixed(1) + "px";
+    plot.append(line, lab);
+  }
+  rows = next5Place(rows, H, hz.span, w);
+  plot.append(el("div", "n5-now" + (near ? " under" : ""), nowName), el("div", "n5-base"));
+  for (const r of rows) {
+    if (r.length <= 3) {
+      for (const e of r) plot.append(...next5Bar(e, ground, hz));
+      continue;
+    }
+    // a row of donuts over its time, centred between the names, its lines
+    // filling from the bottom; hovering it shows the line at its time (the
+    // first's to the last's)
+    const blk = el("div", "n5-blk"), n = next5PerLine(w);
+    blk.append(...r.shown.map((e) => next5Donut(e, ground, hz)));
+    if (r.rest.length) blk.append(next5DMore(r.rest, hz));
+    const across = Math.min(r.shown.length + (r.rest.length ? 1 : 0), n) * (NEXT5_DONUT + NEXT5_DGAP) - NEXT5_DGAP;
+    blk.style.width = across + "px";
+    blk.style.left = `calc(${NEXT5_LAB}px + (100% - ${NEXT5_LAB + NEXT5_RLAB + across}px) / 2)`;
+    blk.style.bottom = (H - r.y + 3).toFixed(1) + "px";
+    const guide = el("div", "n5-guide");
+    guide.style.top = r.y.toFixed(1) + "px";
+    const first = hz.at(r[0].at), last = hz.at(r.at(-1).at);
+    guide.append(el("span", "", first === last ? first : first + "–" + last.split(" ").at(-1)));
+    plot.append(blk, guide);
+  }
+  const empty = card.querySelector(".n5-empty");
+  empty.hidden = running.length > 0;
+  plot.hidden = !running.length;
+}
+// a card's chart width, read as it is laid out: drawn again when it changes
+// (a card filled before it was put in the page, the window or the columns
+// changing), a frame later so the observer's own frame stays its own
+const next5Sized = new ResizeObserver((list) => {
+  for (const { target } of list) {
+    const card = target.n5card, w = Math.round(target.clientWidth);
+    if (!card || !w || w === card.n5w) continue;
+    card.n5w = w;
+    requestAnimationFrame(() => { if (card.isConnected) next5Fill(card); });
+  }
+});
+
+// next5Reanchor: a tooltip open over a bar drawn again stays on its new
+// bar, as the pointer does, else goes with the old. Asked once the cards are
+// in the page: a card filled before it is put there has no place yet (the
+// tooltip went to the window's corner), and in the tray panel the Usage
+// page's own cards are in the page but out of sight, so only a bar in sight
+// keeps it; a card no longer drawn takes its tooltip with it.
+function next5Reanchor() {
+  if (!next5TipEl?.classList.contains("on")) return;
+  const at = [...document.querySelectorAll(".n5-item, .n5-d, .n5-dmore, .n5-wait .logos > span")]
+    .find((d) => d.n5tip?.key === next5TipKey && d.getClientRects().length);
+  if (at) at.n5tip.show(); else next5TipHide();
+}
+
+// next5Glyph: a horizon's mark, the 5 hours' a clock, the week's a calendar
+function next5Glyph(hz) {
+  const g = el("span", "ic n5-glyph");
+  g.append(svg(hz.glyph, 16, 1.5));
+  return g;
+}
+
+// next5Card: a horizon's card, or null while no window it takes has a
+// reset time
+function next5Card(hz, handle) {
+  if (!next5Entries(Date.now(), hz).timed) { next5Els.delete(hz.key); return null; }
+  const card = el("div", "subscription-card n5-card");
+  card.dataset.key = hz.key;
+  card.n5hz = hz;
+  const head = el("div", "subscription-head");
+  const sub = { provider: hz.key, name: t(hz.title), glyph: () => next5Glyph(hz) };
+  head.append(handle ? usageHandle(sub, card) : sub.glyph(), el("b", "", sub.name), el("span", "n5-next"));
+  card.append(head, el("div", "n5-wait"), ...(hz.far ? [el("div", "n5-far")] : []), el("div", "n5-plot"), el("p", "n5-empty", t(hz.empty)));
+  card.lastElementChild.previousElementSibling.n5card = card;
+  next5Sized.observe(card.lastElementChild.previousElementSibling);
+  // the width the card it replaces was laid out at: drawn anew on every
+  // redraw of the page, it would otherwise be filled for a guess first and
+  // change height a frame later, moving what is under it
+  card.n5w = next5Els.get(hz.key)?.n5w;
+  next5Hover(card);
+  next5Fill(card);
+  next5Els.set(hz.key, card);
+  return card;
+}
+
+// next5Group: a horizon's card as the tray panel's Usage tab draws it, a
+// section of its own in the Usage page's order: its name over it as a
+// vendor's is, the next reset at the name's right, the chart in a card under
+// it
+function next5Group(hz) {
+  if (!next5Entries(Date.now(), hz).timed) { next5PanelEls.delete(hz.key); return null; }
+  const g = el("div", "pq-group n5-pq");
+  g.dataset.key = hz.key;
+  g.dataset.h = hz.panelH;
+  g.dataset.max = hz.panelMax;
+  g.n5hz = hz;
+  const head = el("div", "pq-gh");
+  head.append(next5Glyph(hz), el("span", "pq-gn", t(hz.title)), el("span", "pq-gnote n5-next"));
+  // the look of an account's card, not its class: what reads, flashes or
+  // focuses the panel's account cards (.pq-card) passes this one by
+  const card = el("div", "n5-pcard");
+  const plot = el("div", "n5-plot");
+  card.append(el("div", "n5-wait"), ...(hz.far ? [el("div", "n5-far")] : []), plot, el("p", "n5-empty", t(hz.empty)));
+  plot.n5card = g;
+  next5Sized.observe(plot);
+  g.n5w = next5PanelEls.get(hz.key)?.n5w;
+  g.append(head, card);
+  next5Hover(card);
+  next5Fill(g);
+  next5PanelEls.set(hz.key, g);
+  return g;
+}
+
+// the clock moves the bars down and the next reset on: every half minute
+// while the window shows, the page's cards and the panel's, a tab not in
+// sight too (a logo's colours read while the panel's Usage tab was shut
+// were never drawn, its bars left in the accent), and again when the
+// window shows after a while away
+function next5Tick() {
+  if (document.hidden) return;
+  for (const c of [...next5Els.values(), ...next5PanelEls.values()]) if (c.isConnected) next5Fill(c);
+  next5Reanchor();
+}
+setInterval(next5Tick, 30000);
+// a logo's colours read, or the theme changed under the card (its colours
+// are moved off the card's own): drawn again, once a frame
+function next5Again() {
+  if (next5Again.f) return;
+  next5Again.f = requestAnimationFrame(() => { next5Again.f = 0; next5Tick(); });
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", next5Again);
+new MutationObserver(next5Again).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+addEventListener("omarchy-theme", next5Again);
+document.addEventListener("visibilitychange", next5Again);
+
+// next5Before: what a horizon's card (by its key) goes before among a list's
+// items (each by its data-key), as the order puts it; where the order
+// doesn't name it, first, before every card but the other horizons': what
+// all the accounts come to is read before any one of them
+function next5Before(items, key) {
+  const order = state.settings?.usageOrder || [];
+  const at = order.indexOf(key);
+  if (at < 0) return [...items].find((c) => c.dataset.key && !NEXT5_HORIZONS.some((hz) => hz.key === c.dataset.key)) || null;
+  return [...items].find((c) => { const i = order.indexOf(c.dataset.key); return c.dataset.key && (i < 0 || i > at); }) || null;
+}
+
+// a horizon's row in the panel's arranging, its glyph the handle, as a
+// subscription's logo is
+function next5ArrangeRow(hz, off, list) {
+  const name = t(hz.title);
+  const row = el("div", "pq-arow" + (off ? " put-away" : ""));
+  row.dataset.key = hz.key;
+  const h = el("button", "ag-handle pq-ahandle");
+  h.type = "button";
+  h.setAttribute("aria-label", t("Arrange {agent}", { agent: name }));
+  h.title = t("Drag to reorder · Alt+arrow keys to move");
+  h.append(next5Glyph(hz));
+  h.onkeydown = (e) => {
+    const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[e.key];
+    if (!e.altKey || !step) return;
+    e.preventDefault();
+    moveUsage(hz.key, usageKeys().indexOf(hz.key) + step);
+    $(`#panelQuota .pq-arow[data-key="${hz.key}"] .pq-ahandle`)?.focus({ preventScroll: true });
+  };
+  h.onpointerdown = (e) => {
+    if (usageArranging) return;
+    usageArranging = dragCards(e, h, row, list, [...list.children], (to) => moveUsage(hz.key, to), () => {
+      usageArranging = false;
+      if (usageRenderPending) { usageRenderPending = false; renderQuotas(); }
+    });
+  };
+  const pill = el("button", "pq-more pq-show", t(off ? "Show" : "Hide"));
+  pill.type = "button";
+  pill.setAttribute("aria-pressed", String(!off));
+  pill.title = t(off ? "Show {name} in this panel" : "Hide {name} from this panel", { name });
+  pill.onclick = () => hidePanelUsage(hz.key, !off);
+  row.append(h, el("span", "pq-aname", name), off ? el("span", "pq-hidden", t("Hidden")) : "", pill);
+  return row;
+}
+
+// The cards' places in what the core draws (app.js: the Usage page, the
+// panel's Allowances tab and its arranging), here so the core holds only a
+// call at each.
+
+// next5Live: the horizons with a card to draw now
+const next5Live = () => NEXT5_HORIZONS.filter((hz) => next5Entries(Date.now(), hz).timed);
+
+// next5PutCards: the Usage page's cards, each at its place in the order the
+// cards were dragged to (last until it is moved)
+function next5PutCards(list, live, handles) {
+  for (const hz of NEXT5_HORIZONS) {
+    const card = live.includes(hz) ? next5Card(hz, handles) : (next5Els.delete(hz.key), null);
+    if (card) list.insertBefore(card, next5Before(list.children, hz.key));
+  }
+  next5Reanchor();
+}
+
+// next5PanelGroups: the panel's sections, but those the arranging hid,
+// which are counted with the rest put away
+function next5PanelGroups(hidden, away) {
+  return NEXT5_HORIZONS.map((hz) => {
+    if (!hidden.has(hz.key)) return next5Group(hz);
+    if (next5Entries(Date.now(), hz).timed) away.add(hz.key);
+    next5PanelEls.delete(hz.key);
+    return null;
+  }).filter(Boolean);
+}
+
+// next5Parts: whether a horizon's section the order puts between two
+// balances (by provider) parts their run, so it stands between them as on
+// the Usage page
+function next5Parts(groups, a, b) {
+  const order = state.settings?.usageOrder || [], was = order.indexOf(a), now = order.indexOf(b);
+  return groups.some((g) => { const i = order.indexOf(g.dataset.key); return i >= 0 && was >= 0 && now >= 0 && i > was && i < now; });
+}
+
+// next5PutPanel: the panel's sections at their places in the order
+function next5PutPanel(box, groups) {
+  for (const g of groups) box.insertBefore(g, next5Before(box.children, g.dataset.key));
+  next5Reanchor();
+}
+
+// next5PutRows: the horizons' rows in the panel's arranging
+function next5PutRows(list, hidden) {
+  for (const hz of next5Live()) list.insertBefore(next5ArrangeRow(hz, hidden.has(hz.key), list), next5Before(list.children, hz.key));
+}

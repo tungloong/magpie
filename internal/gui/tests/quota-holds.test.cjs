@@ -12,6 +12,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const soon = (h) => new Date(Date.now() + h * 3600e3).toISOString();
@@ -30,7 +31,7 @@ const quotas = [
   ] },
 ];
 function serve(lang) {
-  const settings = { lang, theme: "light", currency: "usd", chineseUnits: lang.startsWith("zh") };
+  const settings = { lang, theme: "light", currency: "usd", chineseUnits: lang.startsWith("zh"), usageOrder: horizonsLast(quotas) };
   const state = { agents: [], profiles: [], settings };
   return async (r) => {
     const url = new URL(r.request().url());

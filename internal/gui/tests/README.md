@@ -1194,6 +1194,55 @@ Daily bars select that day's totals and ranking while keeping the whole chart;
 refresh and metric changes keep the selection, a period change clears it, and
 clicking the selected day clears it too, including days with no calls.
 
+`usage-next-five-hours.test.cjs` checks the Usage page's Next 5 hours card:
+each window at its time on a 240px chart, two thirds wide and clear of the
+names either side, in its logo's colour read from the logo (Claude Code's
+terracotta; Kimi's mask leaves the accent), every colour 3:1 on the card in
+light and dark; filled with what is left, and with what is used once the
+meters show that; the corner marks of one provider's two accounts and the
+one not started waiting above the chart; the full hours on the left half and
+the hours from now on the right. Hovering a bar or a waiting logo shows the
+tooltip at once, a redraw under a still pointer keeps it, leaving the card
+hides it, and no hover moves the page. Windows within five minutes of each
+other share a row (halves, thirds); six together are a row of donuts, each
+with its own tooltip and the row's guide naming the first's time to the
+last's; two half an hour apart stand each at its own time, the chart grown
+for them. At its 420px ceiling a row of donuts shows the lines it has room
+for under the next row and counts the rest (+N, its tooltip naming each).
+Nothing in five hours says so; no reset time anywhere, no card. The tray
+panel draws it 200px high, first where the order puts it, and Arrange hides
+it from the panel alone. Chromium and WebKit, every language, at 1100 and 420 wide.
+
+`usage-next-seven-days.test.cjs` checks the Next 7 days card, the same code
+over a week, with the page's clock and time zone pinned (Asia/Shanghai, a
+Saturday at 09:55): the windows longer than five hours within seven days, a
+month's too, each at its time on a 280px chart, no 5-hour window by any of
+its names and none past seven days; the not-started week waiting above; the
+seven midnights at their places named by weekday in the language, 1D…7D on
+the right; now's name ("Sat 09:55") under the foot while a bar about to start
+again would lie on it, and on the five hours' card under it for 10:00 five
+minutes off; a reset days away said in days and hours. It comes after the
+five hours' card, both before the accounts' until moved, isn't drawn for 5-hour windows alone, and the
+tray panel draws it 240px high (grown where its rows need, 380px at most),
+Arrange hiding it. The midnights are checked
+across the end of daylight saving time in Los Angeles. Chromium and WebKit,
+every language, light and dark. The windows further off than a week, listed
+over its chart, are checked by usage-fold.test.cjs on ARNO's page (17
+subscriptions, 29 accounts at 1280×800): the two cards first, and every
+account's windows, 49 of them, on the first screen with none counted away.
+
+`usage-next-hours-edges.test.cjs` checks three edges of the Next 5 hours card
+with the clock and zone pinned: in a half-hour zone (Kolkata) the full hours
+are the local clock's, 10:00 to 14:00 at 09:40; five accounts used in turn,
+each resetting half an hour after the last, are five bars, not one row of
+three and "+2"; two providers sharing a logo number their accounts 1 and 2.
+Chromium and WebKit, English.
+
+`panel-horizon-balances.test.cjs` checks that in the tray panel the Next 5
+hours section stands between two balances when the order puts it there,
+splitting their Balances run, as on the Usage page. Chromium and WebKit,
+English.
+
 `usage-refresh.test.cjs` sets the Usage page's refresh period, with a clock in
 place of time: every 5 s to begin with and no read before that, the picker's
 five (off, 5 s, 10 s, 30 s, a minute), off reading no more, a minute reading at

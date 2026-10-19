@@ -15181,6 +15181,8 @@ function renderQuotas() {
     const g = sub.user && groups.find((x) => x[0].user && x[0].provider === sub.provider);
     if (g) g.push(sub); else groups.push([sub]);
   }
+  const horizons = next5Live();
+  const handles = groups.length + horizons.length > 1;
   for (const subs of groups) {
     const first = subs[0];
     // several accounts: each in full or in brief, its bars without the
@@ -15192,7 +15194,7 @@ function renderQuotas() {
     if (!first.user) card.dataset.card = first.provider;
     if (!first.user && first.balanceCard) card.dataset.balCard = first.balanceCard;
     const head = el("div", "subscription-head");
-    head.append(groups.length > 1 ? usageHandle(first, card) : icon(first.icon), el("b", "", quotaName(first)));
+    head.append(handles ? usageHandle(first, card) : icon(first.icon), el("b", "", quotaName(first)));
     // a card with no account's name to it (a plugin's ZCode) is named in
     // its head, as the user named it or for the key plan it stands in for
     if (!first.user && first.alias) head.append(...quotaWho(first));
@@ -15289,6 +15291,7 @@ function renderQuotas() {
     if (accts && (folded.size || usageAcctsAll.has(first.provider))) card.append(acctsMore(first.provider, folded.size));
     subscriptions.append(card);
   }
+  next5PutCards(subscriptions, horizons, handles); // Next 5 hours and 7 days (plugins/usage)
   markUpstream();
   packUsageNow(subscriptions);
   restoreFlash();
@@ -15579,7 +15582,7 @@ function usageHandle(sub, card) {
   b.type = "button";
   b.setAttribute("aria-label", t("Arrange {agent}", { agent: sub.name }));
   b.title = t("Drag to reorder · Alt+arrow keys to move");
-  b.append(icon(sub.icon));
+  b.append(sub.glyph ? sub.glyph() : icon(sub.icon)); // a card of magpie's own brings its glyph
   b.onkeydown = (e) => {
     const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[e.key];
     if (!e.altKey || !step) return;
@@ -16648,6 +16651,7 @@ function renderPanelQuota() {
   const hidden = new Set(state.settings?.panelUsageHidden || []);
   const peek = (q) => !!panelPeek && (trayCardID(q) === panelPeek || q.balanceCard === panelPeek || q.provider === panelPeek);
   const away = new Set(subs.filter((q) => hidden.has(q.provider) && !peek(q)).map((q) => q.provider));
+  const next5 = next5PanelGroups(hidden, away);
   // the sections in order: a vendor's accounts, or a run of balances
   const parts = [], groups = new Map();
   for (const q of subs) {
@@ -16656,7 +16660,7 @@ function renderPanelQuota() {
     // weekly windows) is the windows' card; a balance alone, a figure
     if (q.balance && !q.windows?.length) {
       const last = parts[parts.length - 1];
-      if (last?.bals) last.bals.push(q);
+      if (last?.bals && !next5Parts(next5, last.bals.at(-1).provider, q.provider)) last.bals.push(q);
       else parts.push({ bals: [q] });
       continue;
     }
@@ -16664,9 +16668,10 @@ function renderPanelQuota() {
     groups.get(q.name).push(q);
   }
   for (const part of parts) {
-    if (part.bals) { box.append(panelBalances(part.bals)); continue; }
+    if (part.bals) { const b = panelBalances(part.bals); b.dataset.key = part.bals[0].provider; box.append(b); continue; }
     const { name, qs } = part;
     const g = el("div", "pq-group");
+    g.dataset.key = qs[0].provider;
     const head = el("div", "pq-gh");
     head.append(icon(qs[0].icon), el("span", "pq-gn", name));
     // several accounts: how many, a quiet count by the name; one: its plan
@@ -16694,6 +16699,7 @@ function renderPanelQuota() {
     if (qs.length > 1) g.append(usageMore(qs, "pq-more"));
     box.append(g);
   }
+  next5PutPanel(box, next5);
   // the way to hide some and move them, and how many are hidden
   const foot = el("div", "pq-foot");
   const arrange = el("button", "pq-more pq-arrange", t("Arrange"));
@@ -16808,6 +16814,7 @@ function panelArrange(subs) {
     row.append(h, el("span", "pq-aname", q.name), off ? el("span", "pq-hidden", t("Hidden")) : "", pill);
     list.append(row);
   }
+  next5PutRows(list, hidden);
   g.append(list);
   return g;
 }

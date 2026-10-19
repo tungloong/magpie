@@ -15,6 +15,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const at = (h) => new Date(Date.now() + h * 36e5).toISOString();
@@ -48,7 +49,7 @@ const antigravity = {
 };
 
 function serve(lang, panel) {
-  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd" };
+  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", usageOrder: horizonsLast(quotas) };
   return async (route) => {
     const url = new URL(route.request().url());
     const json = (data) => route.fulfill({ json: data });

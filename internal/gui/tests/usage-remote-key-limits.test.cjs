@@ -13,6 +13,8 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
+const { reach } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const H = 3600e3, M = 60e3;
@@ -36,7 +38,7 @@ function fixtures(now) {
 }
 
 function serve(lang, state) {
-  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd" };
+  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", usageOrder: horizonsLast(state.quotas) };
   return async (route) => {
     const url = new URL(route.request().url());
     const json = (body) => route.fulfill({ json: body });
@@ -124,10 +126,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.match(await labels.nth(0).locator(".quota-n").textContent(), /8,950 \/ 10,000/);
 
         // a key's refresh asks for the keys' card by that key's name
-        // scrolled to by the reader (a click holds the page where it was)
-        await page.mouse.move(width / 2, 400);
-        await page.mouse.wheel(0, 3000);
-        await page.waitForTimeout(300);
+        // scrolled to by the reader (a click holds the page where it was),
+        // wheeled until it is in sight, wherever the cards after it end
+        await reach(page, card.locator(".subscription-error"));
         await card.locator(".subscription-error").hover();
         await card.locator(".subscription-error button.quota-refresh").click();
         await page.waitForFunction(() => !document.querySelector(".quota-refresh.busy"));

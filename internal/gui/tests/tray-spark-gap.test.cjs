@@ -13,6 +13,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 const { strings } = require("./strings.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
@@ -41,7 +42,7 @@ function fixtures(now) {
 }
 
 function serve(lang, data) {
-  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd" };
+  const settings = { theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", usageOrder: horizonsLast(data.quotas) };
   return async (route) => {
     const url = new URL(route.request().url());
     const json = (body) => route.fulfill({ json: body });

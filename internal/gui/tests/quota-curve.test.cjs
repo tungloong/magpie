@@ -19,6 +19,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 const vm = require("node:vm");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = process.env.MAGPIE_QUOTA_ASSETS || path.resolve(__dirname, "../assets");
 const H = 3600e3;
@@ -224,7 +225,7 @@ test("quota curve distinguishes fixed refills, rolling recovery and clock roundi
 });
 
 function serve(lang, theme, panel, data) {
-  const settings = { theme, lang, tray: "panel", quotaLeft: false, currency: "usd" };
+  const settings = { theme, lang, tray: "panel", quotaLeft: false, currency: "usd", usageOrder: horizonsLast(data.quotas) };
   return async (route) => {
     const url = new URL(route.request().url());
     const json = (body) => route.fulfill({ json: body });

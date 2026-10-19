@@ -842,6 +842,105 @@ body.window .field.solo { grid-column: auto; }
 .quota-windows.brief .quota-labels { margin-bottom: 3px; }
 .subscription-account .plan { margin-left: auto; flex: none; font-size: 10.5px; color: var(--muted); text-transform: capitalize; }
 .subscription-head .plan { margin-left: auto; font-size: 10.5px; color: var(--muted); text-transform: capitalize; }
+/* The Next 5 hours and Next 7 days cards (next5Card in app.js): their
+   windows as thin bars on a chart of the five hours, or seven days, from now
+   (the bottom line) up, each with its logo and figure over it. A bar is one tube in its logo's colours, --c1 to
+   --c2 (the accent for a logo of none): outlined in a tint of them, the
+   card inside where it is empty, the colours themselves where it is filled.
+   The clock's full hours (the days' midnights) are dashed from the left to
+   the middle and named over their lines at the left, the hours (days) from
+   now ruled from the right to the middle and named over theirs at the
+   right; no bar covers either name.
+   Hovering a bar shows a line at its exact time and its tooltip (.n5-tip).
+   More than three starting again together are a row of donuts (.n5-blk),
+   wrapping onto lines; one with no room for them all counts the rest.
+   color-mix has a fallback for older WebKit. */
+.n5-glyph { color: var(--fg-2); }
+.n5-next { margin-left: auto; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.n5-next b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.n5-wait { display: flex; align-items: center; justify-content: flex-end; gap: 10px; height: 18px; margin: -2px 0 8px; padding-right: 8px; color: var(--fg-2); }
+.n5-wait .lab { font-size: 10px; color: var(--muted); }
+.n5-wait .logos { display: flex; align-items: center; gap: 16px; }
+.n5-plot { position: relative; height: 240px; margin: 14px 0 4px; } /* its height is the card's (next5Fill), less now's name's room when that goes under it (.under) */
+.n5-rule { position: absolute; left: 50%; right: 0; height: 1px; background: color-mix(in srgb, var(--line) 70%, var(--card)); }
+.n5-in { position: absolute; right: 0; transform: translateY(calc(-100% - 2px)); text-align: right; font-size: 10px; line-height: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.n5-hour { position: absolute; left: 0; right: 50%; border-top: 1px dashed color-mix(in srgb, var(--faint) 60%, var(--card)); }
+.n5-clock { position: absolute; left: 0; transform: translateY(calc(-100% - 2px)); font-size: 10px; line-height: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.n5-now { position: absolute; left: 0; bottom: 4px; font-size: 10px; line-height: 12px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+/* under the foot when a full hour's or a midnight's name would lie on it */
+.n5-now.under { top: calc(100% + 3px); bottom: auto; }
+/* its room, taken from the chart's height (next5Fill), so the card stays as tall */
+.n5-plot.under { margin-bottom: calc(4px + 14px); }
+.n5-base { position: absolute; left: 0; right: 0; bottom: -1px; height: 1.5px; background: var(--accent); }
+.n5-item, .n5-guide { --c1: var(--accent); --c2: var(--c1); }
+.n5-item { position: absolute; z-index: 2; }
+/* the label's own ground, so a rule passing under it never runs through
+   its logo or figure */
+.n5-lab { display: flex; align-items: center; height: 14px; margin-bottom: 3px; color: var(--fg); }
+.n5-lab .who { display: inline-flex; padding: 1px 6px 1px 0; background: var(--card); }
+.n5-pct { margin-left: auto; padding-left: 4px; background: var(--card); font-size: 10.5px; line-height: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.n5-bar { position: relative; height: 7px; border-radius: 3.5px; background: linear-gradient(90deg, color-mix(in srgb, var(--c1) 55%, var(--card)), color-mix(in srgb, var(--c2) 55%, var(--card))); }
+.n5-bar::before { content: ""; position: absolute; inset: 1.5px; border-radius: 2px; background: var(--card); }
+.n5-bar i { position: absolute; inset: 0; border-radius: 3.5px; background: linear-gradient(90deg, var(--c1), var(--c2)); }
+.n5-logo { position: relative; flex: none; width: 12px; height: 12px; }
+.n5-logo .ic { display: flex; width: 12px; height: 12px; }
+.n5-logo .ic img, .n5-logo .ic svg { width: 12px; height: 12px; }
+/* a quiet round in the colour of the text around it, touching the logo's
+   lower right corner */
+.n5-mark { position: absolute; left: 9px; bottom: -3px; min-width: 9px; height: 9px; padding: 0 2px; box-sizing: border-box; border-radius: 4.5px; background: color-mix(in srgb, currentColor 16%, transparent); color: color-mix(in srgb, currentColor 85%, transparent); font-size: 6.5px; line-height: 9px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+/* over the bars, so its time ("Sat 09:59") is never under the bar it is for */
+.n5-guide { position: absolute; z-index: 3; left: 0; right: 22px; height: 2px; margin-top: -1px; border-radius: 1px; background: linear-gradient(90deg, var(--c1), var(--c2)); pointer-events: none; opacity: 0; transition: opacity .12s; }
+.n5-guide span { position: absolute; left: 0; top: 50%; transform: translateY(-50%); padding-right: 4px; background: var(--card); font-size: 10px; line-height: 16px; font-weight: 600; color: var(--c1); font-variant-numeric: tabular-nums; }
+.n5-item:hover + .n5-guide, .n5-blk:hover + .n5-guide { opacity: 1; }
+/* a row of donuts over its time; its guide in the accent, being several logos' */
+.n5-blk { position: absolute; z-index: 2; display: flex; flex-wrap: wrap-reverse; justify-content: center; gap: 6px 5px; }
+.n5-blk + .n5-guide { --c1: var(--accent); --c2: var(--accent); }
+/* a ring around the logo, 84° open at the top for its figure: a tint of the
+   logo's colours where it is empty, the colours themselves where filled */
+.n5-d { position: relative; flex: none; width: 30px; height: 30px; color: var(--fg); --c1: var(--accent); --c2: var(--c1); }
+.n5-d svg { position: absolute; inset: 0; width: 30px; height: 30px; overflow: visible; }
+.n5-d path { fill: none; stroke-width: 3; stroke-linecap: round; }
+.n5-d .track { stroke: color-mix(in srgb, var(--c1) 22%, var(--card)); }
+.n5-d .c1 { stop-color: var(--c1); }
+.n5-d .c2 { stop-color: var(--c2); }
+.n5-d > .n5-logo { position: absolute; left: 9px; top: 9px; }
+.n5-dpct { position: absolute; left: 50%; top: -4px; transform: translateX(-50%); font-size: 8px; line-height: 9px; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.n5-dmore { display: flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--pill); box-shadow: inset 0 0 0 1px var(--line); color: var(--fg-2); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: default; }
+/* the windows further off than the week, over its chart */
+.n5-far { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0 6px; }
+.n5-far .lab { flex: none; padding-top: 11px; font-size: 10px; line-height: 12px; color: var(--muted); white-space: nowrap; } /* as wide as its words ("Further off", Danach) */
+.n5-dots { display: flex; flex-wrap: wrap; gap: 6px 5px; padding-top: 4px; min-width: 0; }
+/* the tooltip a bar shows at once (next5TipShow), in the page's own pop-up
+   ground: a part for each window, its name and account, then rows of a
+   label and a figure, the pace's meaning, this cycle's line and the read */
+.n5-tip { position: fixed; z-index: 31; top: 0; left: 0; width: 224px; box-sizing: border-box; padding: 8px 10px 7px; background: var(--pop-bg); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); border-radius: 9px; box-shadow: var(--shadow); color: var(--fg); font-size: 11.5px; pointer-events: none; opacity: 0; visibility: hidden; }
+.n5-tip.on { opacity: 1; visibility: visible; }
+.n5-tip-part + .n5-tip-part { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line-2); }
+.n5-tip-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.n5-tip-head b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.n5-tip-head .plan { margin-left: auto; flex: none; font-size: 10.5px; color: var(--muted); text-transform: capitalize; }
+.n5-tip-acct { margin: 1px 0 0 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--muted); }
+.n5-tip-head + .n5-tip-row, .n5-tip-acct + .n5-tip-row { margin-top: 5px; }
+.n5-tip-row { display: flex; align-items: baseline; gap: 10px; line-height: 1.6; }
+.n5-tip-row span { min-width: 0; color: var(--fg-2); }
+.n5-tip-row em { margin-left: auto; flex: none; font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+.n5-tip-row.over span { color: var(--amber); }
+.n5-tip-note { margin: 0; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.n5-tip .pq-spark-box { margin-top: 6px; }
+.n5-tip-foot { margin-top: 5px; font-size: 10.5px; color: var(--muted); }
+/* in the tray panel: a card of its own under its name, as an account's
+   (.pq-card) looks */
+.n5-pcard { padding: 10px 12px; border-radius: 11px; background: var(--card); box-shadow: var(--card-edge); }
+.n5-pq .n5-next b { font-weight: 600; }
+.n5-empty { margin: 2px 0 0; font-size: 10.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .n5-guide { transition: none; } }
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .n5-rule { background: var(--line); }
+  .n5-hour { border-top-color: var(--line); }
+  .n5-bar { background: linear-gradient(90deg, var(--c1), var(--c2)); }
+  .n5-mark { background: var(--pill); color: var(--fg-2); }
+  .n5-d .track { stroke: var(--line); }
+}
 .quota-windows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 14px; }
 /* each window takes two of the grid's rows, its names and its bar, so
    when one's count wraps under its name the bars beside it still line up;

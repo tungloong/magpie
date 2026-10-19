@@ -14,6 +14,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = path.resolve(process.env.MAGPIE_ASSETS || path.join(__dirname, "../assets"));
 
@@ -23,7 +24,7 @@ function serve(lang, acct) {
     const json = (data) => route.fulfill({ json: data });
     if (url.pathname === "/boot.js") return route.fulfill({ contentType: "text/javascript", body: `window.bootPrefs = {lang:"${lang}",theme:"light",web:true};` });
     if (url.pathname === "/wails/runtime.js") return route.fulfill({ contentType: "text/javascript", body: "export const Window = {};" });
-    if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", quotaReads: "asked" } });
+    if (url.pathname === "/api/state") return json({ agents: [], profiles: [], settings: { lang, theme: "light", quotaReads: "asked", usageOrder: horizonsLast([{ provider: "codex" }]) } });
     if (url.pathname === "/api/usage/quotas") {
       const asked = url.searchParams.get("asked") === "1";
       acct.reads.push(asked ? "asked" : "kept");

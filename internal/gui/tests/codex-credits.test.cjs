@@ -15,6 +15,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { horizonsLast } = require("./horizons-last.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const later = new Date(Date.now() + 3 * 864e5).toISOString();
@@ -41,7 +42,7 @@ const routes = [{ id: 7, seq: 7, time: at, agent: "codex", model: "gpt-5.5", pro
 
 function serve(lang, posts) {
   let off = [];
-  const settings = () => ({ theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", trayUsages: ["codex", "zhipu", "codex-plugin"], trayUsageEvery: 3, codexNoCredits: off });
+  const settings = () => ({ theme: "light", lang, tray: "panel", quotaLeft: false, currency: "usd", trayUsages: ["codex", "zhipu", "codex-plugin"], trayUsageEvery: 3, codexNoCredits: off, usageOrder: horizonsLast(quotas) });
   return async (route) => {
     const req = route.request(), url = new URL(req.url());
     const json = (data) => route.fulfill({ json: data });
